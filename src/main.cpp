@@ -22,7 +22,7 @@ const char* fragmentShaderSource = R"(
 out vec4 FragColor;
 void main()
 {
-    FragColor = vec4(1.0f, 1.0f, 1.0f, 1.0f); // blueish
+    FragColor = vec4(1.0f, 1.0f, 1.0f, 1.0f);
 }
 )";
 
@@ -35,44 +35,6 @@ void main()
 }
 )";
 
-struct Ray {
-    unsigned int VAO;
-    unsigned int VBO;
-    int vertexCount;
-    GLenum drawMode;
-    float offsetX, offsetY;
-
-    Ray(const std::vector<float>& vertices, GLenum mode, float x=0.0f, float y=0.0f)
-        : drawMode(mode), offsetX(x), offsetY(y)
-    {
-        vertexCount = vertices.size() / 3; // since it stores x, y, and z coordinates
-
-        glGenVertexArrays(1, &VAO);
-        glGenBuffers(1, &VBO);
-
-        glBindVertexArray(VAO);
-        glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
-
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-        glEnableVertexAttribArray(0);
-    }
-
-    void draw(unsigned int shaderProgram) {
-        glUseProgram(shaderProgram);
-        glBindVertexArray(VAO);
-
-        int offsetLoc = glGetUniformLocation(shaderProgram, "offset");
-        glUniform2f(offsetLoc, offsetX, offsetY);
-
-        glDrawArrays(drawMode, 0, vertexCount);
-    }
-
-    void updateLoc() {
-        this->offsetX += .001;
-    }
-};
-
 struct Star {
     unsigned int VAO;
     unsigned int VBO;
@@ -83,7 +45,7 @@ struct Star {
     Star(const std::vector<float>& vertices, GLenum mode, float x=0.0f, float y=0.0f)
         : drawMode(mode), offsetX(x), offsetY(y)
     {
-        vertexCount = vertices.size() / 3; // since it stores x, y, and z coordinates
+        vertexCount = vertices.size() / 3;
 
         glGenVertexArrays(1, &VAO);
         glGenBuffers(1, &VBO);
@@ -107,62 +69,97 @@ struct Star {
     }
 };
 
-// General Shape struct
-// struct Shape {
-//     unsigned int VAO;
-//     unsigned int VBO;
-//     int vertexCount;
-//     GLenum drawMode;
-//     float offsetX, offsetY;
+struct Ray {
+    unsigned int VAO;
+    unsigned int VBO;
+    int vertexCount;
+    GLenum drawMode;
+    float offsetX, offsetY;
+    float localMinX, localMaxX;
+    float localMinY, localMaxY;
 
-//     Shape(const std::vector<float>& vertices, GLenum mode, float x=0.0f, float y=0.0f)
-//         : drawMode(mode), offsetX(x), offsetY(y)
-//     {
-//         vertexCount = vertices.size() / 3; // since it stores x, y, and z coordinates
+    Ray(const std::vector<float>& vertices, GLenum mode, float x=0.0f, float y=0.0f)
+        : drawMode(mode), offsetX(x), offsetY(y),
+          localMinX(0.0f), localMaxX(0.0f),
+          localMinY(0.0f), localMaxY(0.0f)
+    {
+        vertexCount = vertices.size() / 3;
 
-//         glGenVertexArrays(1, &VAO);
-//         glGenBuffers(1, &VBO);
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
 
-//         glBindVertexArray(VAO);
-//         glBindBuffer(GL_ARRAY_BUFFER, VBO);
-//         glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
 
-//         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-//         glEnableVertexAttribArray(0);
-//     }
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
 
-//     void draw(unsigned int shaderProgram) {
-//         glUseProgram(shaderProgram);
-//         glBindVertexArray(VAO);
+        // Compute local X and Y extents from vertex data
+        for (int i = 0; i < (int)vertices.size(); i += 3) {
+            float vx = vertices[i];
+            float vy = vertices[i + 1];
+            if (i == 0) {
+                localMinX = localMaxX = vx;
+                localMinY = localMaxY = vy;
+            } else {
+                if (vx < localMinX) localMinX = vx;
+                if (vx > localMaxX) localMaxX = vx;
+                if (vy < localMinY) localMinY = vy;
+                if (vy > localMaxY) localMaxY = vy;
+            }
+        }
+    }
 
-//         int offsetLoc = glGetUniformLocation(shaderProgram, "offset");
-//         glUniform2f(offsetLoc, offsetX, offsetY);
+    void draw(unsigned int shaderProgram) {
+        glUseProgram(shaderProgram);
+        glBindVertexArray(VAO);
 
-//         glDrawArrays(drawMode, 0, vertexCount);
-//     }
+        int offsetLoc = glGetUniformLocation(shaderProgram, "offset");
+        glUniform2f(offsetLoc, offsetX, offsetY);
 
-//     void updateLoc() {
-//         this->offsetX += .001;
-//     }
+        glDrawArrays(drawMode, 0, vertexCount);
+    }
 
-//     bool checkCollision(const Shape& other, float radius = 0.3f) {
-//         float aspect = 800.0f / 600.0f;
-    
-//         // Right tip of the line in world space
-//         float lineTipX = this->offsetX + (-0.85f);
-        
-//         // Left edge of the circle in world space (radius is squeezed by aspect)
-//         float circleEdge = other.offsetX - (radius / aspect);
-        
-//         return lineTipX >= circleLeftEdge;
+    void updateLoc(float xMove = 0.0f, float yMove = 0.0f) {
 
-//     }
-// };
+        this->localMaxX += xMove;
+        this->localMaxY += yMove;
+
+        // Update the right endpoint (x2, y2) in the VBO directly (So we can refresh the screen and still keep the streak)
+        // Fixes diagonal line being really thick at its start
+        // Second vertex starts at byte offset 12 (3 floats * 4 bytes)
+        float newX = this->localMaxX;
+        float newY = this->localMaxY;
+
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 12, sizeof(float), &newX); // update x2
+        glBufferSubData(GL_ARRAY_BUFFER, 16, sizeof(float), &newY); // update y2
+    }
+
+    bool collidedWith(const Star& star, float radius = 0.3f) {
+        float aspect = 800.0f / 600.0f;
+
+        // Right tip of the line in world space
+        float tipX = this->localMaxX + this->offsetX;
+
+        // Y position of the line in world space
+        float tipY = this->localMaxY + this->offsetY;
+
+        // Check distance from center of star (account for aspect squishing)
+        float dx = (star.offsetX - tipX) * aspect;
+        float dy = star.offsetY - tipY;
+
+        float dist = sqrt(dx*dx + dy*dy);
+        //It cannot be closer than 0.3 (since that is the radius of the star)
+        return dist <= radius;
+    }
+};
 
 // Helper function: create circle vertices
 std::vector<float> createCircle(float radius, int segments) {
     std::vector<float> verts;
-    // center
     verts.push_back(0.0f);
     verts.push_back(0.0f);
     verts.push_back(0.0f);
@@ -186,7 +183,6 @@ unsigned int createShaderProgram(const char* &fragmentShaderSource) {
     int success;
     char infoLog[512];
 
-    // Vertex Shader
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
     glCompileShader(vertexShader);
@@ -196,7 +192,6 @@ unsigned int createShaderProgram(const char* &fragmentShaderSource) {
         std::cerr << "Vertex Shader Error: " << infoLog << std::endl;
     }
 
-    // Fragment Shader
     unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragmentShader, 1, &fragmentShaderSource, nullptr);
     glCompileShader(fragmentShader);
@@ -206,7 +201,6 @@ unsigned int createShaderProgram(const char* &fragmentShaderSource) {
         std::cerr << "Fragment Shader Error: " << infoLog << std::endl;
     }
 
-    // Shader Program
     unsigned int shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
@@ -224,7 +218,6 @@ unsigned int createShaderProgram(const char* &fragmentShaderSource) {
 }
 
 int main() {
-    // Initialize GLFW
     if(!glfwInit()) return -1;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -248,25 +241,38 @@ int main() {
     Star circle(createCircle(0.3f, 100), GL_TRIANGLE_FAN, 0.75f, 0.0f);
     Ray line(createLine(-0.9f, 0.0f, -0.85f, 0.0f), GL_LINES);
     Ray line2(createLine(-0.9f, -0.2f, -0.85f, -0.2f), GL_LINES);
+    Ray line3(createLine(-0.9f, -0.5f, -0.85f, -0.5f), GL_LINES);
+    Ray line4(createLine(0.75f, -0.9f, 0.75f, -0.85f), GL_LINES);
+    Ray line5(createLine(-1.0f, -1.0f, -0.95f, -0.95f), GL_LINES);
 
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
 
     while(!glfwWindowShouldClose(window)){
 
-        // glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        // glClear(GL_COLOR_BUFFER_BIT);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
 
-        // Draw all shapes
         circle.draw(starShaderProgram);
         line.draw(lineShaderProgram);
         line2.draw(lineShaderProgram);
-        //if (!line.checkCollision(circle)) {
-            line.updateLoc();
-        //}
-        //if (!line2.checkCollision(circle)) {
-            line2.updateLoc();
-        //}
+        line3.draw(lineShaderProgram);
+        line4.draw(lineShaderProgram);
+        line5.draw(lineShaderProgram);
+
+        if (!line.collidedWith(circle)) {
+            line.updateLoc(0.002, 0);
+        }
+        if (!line2.collidedWith(circle)) {
+            line2.updateLoc(0.002, 0);
+        }
+        if (!line3.collidedWith(circle)) {
+            line3.updateLoc(0.002, 0);
+        }
+        if (!line4.collidedWith(circle)) {
+            line4.updateLoc(0, 0.002);
+        }
+        if (!line5.collidedWith(circle)) {
+            line5.updateLoc(0.002, 0.001);
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
