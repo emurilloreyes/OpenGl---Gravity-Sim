@@ -3,11 +3,12 @@ Practicing OpenGL, drawing a simulation of light getting affected by different s
 
 ## Progress: 
  - Created Star and Ray structs
- - Ray moves forward, leaving a trail behind
- - Basic collision mechanics (only detects from the left, and the y-coordinate is not taken into account).
+ - Ray updates every frame, growing on its trajectory
+ - Implemented collision mechanics by calculating distance before overlap
 
 ## Needs work
- - Full implementation of collision from any direction
- - Gravity implementation
-   - Possible ray tracing?
- - Black hole implementation 
+ - Newtonian gravity simulation
+   - Possible ray tracing? For rendering
+   - Expanding to 3D newtonian gravity
+ - Black hole implementation
+   - Hopefully, render black hole like they did with interstellar, (except much simpler) 
