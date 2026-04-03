@@ -13,3 +13,11 @@ Practicing OpenGL, drawing a simulation of light getting affected by different s
  - Black hole implementation
    - Hopefully, render black hole like they did with interstellar, (except much simpler) 
 
+
+## Version History
+
+- V1
+   - Simple star and ray drawing with collision detection from the left
+- V2
+   - Changed ray functionality, now grows instead of stamping a new one ahead (fixes diagonal and can now refresh the screen)
+   - Cleaned up collisions, now works from all angles for different rays
