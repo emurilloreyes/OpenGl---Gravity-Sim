@@ -21,3 +21,6 @@ Practicing OpenGL, drawing a simulation of light getting affected by different s
 - V2
    - Changed ray functionality, now grows instead of stamping a new one ahead (fixes diagonal and can now refresh the screen)
    - Cleaned up collisions, now works from all angles for different rays
+- V3
+   - Added custom window sizing
+   - Fixed aspect ratio bug with circle drawing  
