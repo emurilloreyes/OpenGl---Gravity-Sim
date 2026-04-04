@@ -77,11 +77,12 @@ struct Ray {
     float offsetX, offsetY;
     float localMinX, localMaxX;
     float localMinY, localMaxY;
+    float aspect;
 
-    Ray(const std::vector<float>& vertices, GLenum mode, float x=0.0f, float y=0.0f)
+    Ray(const std::vector<float>& vertices, GLenum mode, float winWidth, float winHeight, float x=0.0f, float y=0.0f)
         : drawMode(mode), offsetX(x), offsetY(y),
           localMinX(0.0f), localMaxX(0.0f),
-          localMinY(0.0f), localMaxY(0.0f)
+          localMinY(0.0f), localMaxY(0.0f), aspect (winWidth / winHeight)
     {
         vertexCount = vertices.size() / 3;
 
@@ -139,7 +140,6 @@ struct Ray {
     }
 
     bool collidedWith(const Star& star, float radius = 0.3f) {
-        float aspect = 800.0f / 600.0f;
 
         // Right tip of the line in world space
         float tipX = this->localMaxX + this->offsetX;
@@ -158,12 +158,12 @@ struct Ray {
 };
 
 // Helper function: create circle vertices
-std::vector<float> createCircle(float radius, int segments) {
+std::vector<float> createCircle(float radius, int segments, float winWidth, float winHeight) {
     std::vector<float> verts;
     verts.push_back(0.0f);
     verts.push_back(0.0f);
     verts.push_back(0.0f);
-    float aspect = 800.0f / 600.0f;
+    float aspect = winWidth / winHeight;
     for (int i = 0; i <= segments; i++) {
         float angle = 2.0f * M_PI * i / segments;
         verts.push_back(radius * cos(angle) / aspect);
@@ -217,14 +217,19 @@ unsigned int createShaderProgram(const char* &fragmentShaderSource) {
     return shaderProgram;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+
+    float windowWidth = std::stof(argv[1]);
+    float windowHeight = std::stof(argv[2]);
+
+
     if(!glfwInit()) return -1;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Shapes", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(windowWidth, windowHeight, "Shapes", nullptr, nullptr);
     if(!window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(window);
 
@@ -232,18 +237,18 @@ int main() {
         std::cerr << "Failed to initialize GLAD\n"; return -1;
     }
 
-    glViewport(0, 0, 800, 600);
+    glViewport(0, 0, windowWidth, windowHeight);
 
     unsigned int starShaderProgram = createShaderProgram(fragmentShaderSourceStar);
     unsigned int lineShaderProgram = createShaderProgram(fragmentShaderSource);
 
     // Create shapes
-    Star circle(createCircle(0.3f, 100), GL_TRIANGLE_FAN, 0.75f, 0.0f);
-    Ray line(createLine(-0.9f, 0.0f, -0.85f, 0.0f), GL_LINES);
-    Ray line2(createLine(-0.9f, -0.2f, -0.85f, -0.2f), GL_LINES);
-    Ray line3(createLine(-0.9f, -0.5f, -0.85f, -0.5f), GL_LINES);
-    Ray line4(createLine(0.75f, -0.9f, 0.75f, -0.85f), GL_LINES);
-    Ray line5(createLine(-1.0f, -1.0f, -0.95f, -0.95f), GL_LINES);
+    Star circle(createCircle(0.3f, 100, windowWidth, windowHeight), GL_TRIANGLE_FAN, 0.75f, 0.0f);
+    Ray line(createLine(-0.9f, 0.0f, -0.85f, 0.0f), GL_LINES, windowWidth, windowHeight);
+    Ray line2(createLine(-0.9f, -0.2f, -0.85f, -0.2f), GL_LINES, windowWidth, windowHeight);
+    Ray line3(createLine(-0.9f, -0.5f, -0.85f, -0.5f), GL_LINES, windowWidth, windowHeight);
+    Ray line4(createLine(0.75f, -0.9f, 0.75f, -0.85f), GL_LINES, windowWidth, windowHeight);
+    Ray line5(createLine(-1.0f, -1.0f, -0.95f, -0.95f), GL_LINES, windowWidth, windowHeight);
 
 
     while(!glfwWindowShouldClose(window)){
