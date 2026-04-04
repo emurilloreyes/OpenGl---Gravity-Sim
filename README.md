@@ -1,13 +1,23 @@
 # OpenGl---Gravity-Sim
 Practicing OpenGL, drawing a simulation of light getting affected by different structures like planets, stars, and black holes.
 
-## Progress: 
+## Progress 
  - Created Star and Ray structs
- - Ray moves forward, leaving a trail behind
- - Basic collision mechanics (only detects from the left, and the y-coordinate is not taken into account).
+ - Ray updates every frame, growing on its trajectory
+ - Implemented collision mechanics by calculating distance before overlap
 
 ## Needs work
- - Full implementation of collision from any direction
- - Gravity implementation
-   - Possible ray tracing?
- - Black hole implementation 
+ - Newtonian gravity simulation
+   - Possible ray tracing? For rendering
+   - Expanding to 3D newtonian gravity
+ - Black hole implementation
+   - Hopefully, render black hole like they did with interstellar, (except much simpler) 
+
+
+## Version History
+
+- V1
+   - Simple star and ray drawing with collision detection from the left
+- V2
+   - Changed ray functionality, now grows instead of stamping a new one ahead (fixes diagonal and can now refresh the screen)
+   - Cleaned up collisions, now works from all angles for different rays
