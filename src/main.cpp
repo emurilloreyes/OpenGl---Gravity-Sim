@@ -5,11 +5,14 @@
 #include <GLFW/glfw3.h>
 #define M_PI 3.141592
 
+const float c = 299792458;
+const float GConst = 6.67e-11;
+
 // Vertex Shader
 const char* vertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
-uniform vec2 offset; // for moving objects
+uniform vec2 offset;
 void main()
 {
     gl_Position = vec4(aPos.xy + offset, aPos.z, 1.0);
@@ -26,25 +29,29 @@ void main()
 }
 )";
 
-const char* fragmentShaderSourceStar = R"(
+const char* fragmentShaderSourceBH = R"(
 #version 330 core
 out vec4 FragColor;
 void main()
 {
-    FragColor = vec4(1.0f, 1.0f, 0.0f, 0.0f);
+    FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);
 }
 )";
 
-struct Star {
+struct BlackHole {
     unsigned int VAO;
     unsigned int VBO;
     int vertexCount;
     GLenum drawMode;
     float offsetX, offsetY;
+    float mass;
+    float rs_ndc;
 
-    Star(const std::vector<float>& vertices, GLenum mode, float x=0.0f, float y=0.0f)
-        : drawMode(mode), offsetX(x), offsetY(y)
+    BlackHole(const std::vector<float>& vertices, float mass, GLenum mode, float radius, float x=0.0f, float y=0.0f)
+        : drawMode(mode), rs_ndc(radius), offsetX(x), offsetY(y), mass(mass)
     {
+
+
         vertexCount = vertices.size() / 3;
 
         glGenVertexArrays(1, &VAO);
@@ -72,44 +79,34 @@ struct Star {
 struct Ray {
     unsigned int VAO;
     unsigned int VBO;
-    int vertexCount;
-    GLenum drawMode;
+    std::vector<float> path;
     float offsetX, offsetY;
-    float localMinX, localMaxX;
-    float localMinY, localMaxY;
     float aspect;
+    float velX, velY;
+    float currentX, currentY;
 
-    Ray(const std::vector<float>& vertices, GLenum mode, float winWidth, float winHeight, float x=0.0f, float y=0.0f)
-        : drawMode(mode), offsetX(x), offsetY(y),
-          localMinX(0.0f), localMaxX(0.0f),
-          localMinY(0.0f), localMaxY(0.0f), aspect (winWidth / winHeight)
+    Ray(float startX, float startY, float winWidth, float winHeight, float vx=0.0f, float vy=0.0f)
+    : offsetX(0.0f), offsetY(0.0f),
+      aspect(winWidth / winHeight),
+      velX(vx), velY(vy),
+      currentX(startX), currentY(startY)
     {
-        vertexCount = vertices.size() / 3;
-
         glGenVertexArrays(1, &VAO);
         glGenBuffers(1, &VBO);
 
+        // Store all of the rays in a vector 'remember them'
+        // Helps solve the issue of just drawing a straight line between two points 
+        // When orbiting the black hole their trajectory gets traced properly
+        path.push_back(startX);
+        path.push_back(startY);
+        path.push_back(0.0f);
+
         glBindVertexArray(VAO);
         glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, path.size() * sizeof(float), path.data(), GL_DYNAMIC_DRAW);
 
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
-
-        // Compute local X and Y extents from vertex data
-        for (int i = 0; i < (int)vertices.size(); i += 3) {
-            float vx = vertices[i];
-            float vy = vertices[i + 1];
-            if (i == 0) {
-                localMinX = localMaxX = vx;
-                localMinY = localMaxY = vy;
-            } else {
-                if (vx < localMinX) localMinX = vx;
-                if (vx > localMaxX) localMaxX = vx;
-                if (vy < localMinY) localMinY = vy;
-                if (vy > localMaxY) localMaxY = vy;
-            }
-        }
     }
 
     void draw(unsigned int shaderProgram) {
@@ -119,41 +116,67 @@ struct Ray {
         int offsetLoc = glGetUniformLocation(shaderProgram, "offset");
         glUniform2f(offsetLoc, offsetX, offsetY);
 
-        glDrawArrays(drawMode, 0, vertexCount);
+        glDrawArrays(GL_LINE_STRIP, 0, path.size() / 3);
     }
 
-    void updateLoc(float xMove = 0.0f, float yMove = 0.0f) {
+    void applyGravity(const BlackHole& bh, float mppX, float mppY) {
+        // Distance to black hole in NDC coordinates
+        float dx = (bh.offsetX - currentX) * aspect;
+        float dy = bh.offsetY - currentY;
+        float distNDC = sqrt(dx*dx + dy*dy);
 
-        this->localMaxX += xMove;
-        this->localMaxY += yMove;
+        // Convert the distance into meters
+        float dxMeters = dx * mppX;
+        float dyMeters = dy * mppY;
+        float distMeters = sqrt(dxMeters*dxMeters + dyMeters*dyMeters);
 
-        // Update the right endpoint (x2, y2) in the VBO directly (So we can refresh the screen and still keep the streak)
-        // Fixes diagonal line being really thick at its start
-        // Second vertex starts at byte offset 12 (3 floats * 4 bytes)
-        float newX = this->localMaxX;
-        float newY = this->localMaxY;
+        // General Relativity’s weak-field approximation for light bending near a mass
+        float factor = 4.0f * GConst * bh.mass / (c * c * distMeters * distMeters * distMeters);
 
+        // Adjust the ray velocity toward the black hole
+        velX += dxMeters * factor;
+        velY += dyMeters * factor;
 
+        // Normalize the light's speed since it needs to move at c
+        // *note this causes inconsistencies when changing values*
+        float mag = sqrt(velX*velX + velY*velY);
+        float c_scaled = 0.02f;
+
+        velX = (velX / mag) * c_scaled;
+        velY = (velY / mag) * c_scaled;
+    }
+
+    void updateLoc() {
+        // Time we are simulating at
+        float dt = 0.01f;
+
+        // Scales how much the ray actually moves on screen each frame
+        currentX += velX * dt;
+        currentY += velY * dt;
+
+        // Add the new line location to the vector to create a clean trajectory
+        path.push_back(currentX);
+        path.push_back(currentY);
+        path.push_back(0.0f);
+
+        glBindVertexArray(VAO);
         glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBufferSubData(GL_ARRAY_BUFFER, 12, sizeof(float), &newX); // update x2
-        glBufferSubData(GL_ARRAY_BUFFER, 16, sizeof(float), &newY); // update y2
+        glBufferData(GL_ARRAY_BUFFER, path.size() * sizeof(float), path.data(), GL_DYNAMIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
     }
 
-    bool collidedWith(const Star& star, float radius = 0.3f) {
+    bool collidedWith(const BlackHole& bh) {
 
-        // Right tip of the line in world space
-        float tipX = this->localMaxX + this->offsetX;
-
-        // Y position of the line in world space
-        float tipY = this->localMaxY + this->offsetY;
-
-        // Check distance from center of star (account for aspect squishing)
-        float dx = (star.offsetX - tipX) * aspect;
-        float dy = star.offsetY - tipY;
+        // Dist to center of black hole
+        float dx = (bh.offsetX - currentX) * aspect;
+        float dy = bh.offsetY - currentY;
 
         float dist = sqrt(dx*dx + dy*dy);
-        //It cannot be closer than 0.3 (since that is the radius of the star)
-        return dist <= radius;
+
+        // Just assume the rs is the radius for simplicity
+        return dist <= bh.rs_ndc;
     }
 };
 
@@ -173,11 +196,6 @@ std::vector<float> createCircle(float radius, int segments, float winWidth, floa
     return verts;
 }
 
-// Helper function: create a line
-std::vector<float> createLine(float x1, float y1, float x2, float y2) {
-    return { x1, y1, 0.0f, x2, y2, 0.0f };
-}
-
 // Compile shader and create program
 unsigned int createShaderProgram(const char* &fragmentShaderSource) {
     int success;
@@ -187,29 +205,16 @@ unsigned int createShaderProgram(const char* &fragmentShaderSource) {
     glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
     glCompileShader(vertexShader);
     glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-    if(!success){
-        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        std::cerr << "Vertex Shader Error: " << infoLog << std::endl;
-    }
 
     unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragmentShader, 1, &fragmentShaderSource, nullptr);
     glCompileShader(fragmentShader);
     glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-    if(!success){
-        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        std::cerr << "Fragment Shader Error: " << infoLog << std::endl;
-    }
 
     unsigned int shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if(!success){
-        glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
-        std::cerr << "Shader Program Error: " << infoLog << std::endl;
-    }
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
@@ -222,6 +227,8 @@ int main(int argc, char *argv[]) {
     float windowWidth = std::stof(argv[1]);
     float windowHeight = std::stof(argv[2]);
 
+    float metersPerPixelX = 1e8f / windowWidth;
+    float metersPerPixelY = 1e8f / windowHeight;
 
     if(!glfwInit()) return -1;
 
@@ -229,54 +236,39 @@ int main(int argc, char *argv[]) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(windowWidth, windowHeight, "Shapes", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(windowWidth, windowHeight, "Black Hole", nullptr, nullptr);
     if(!window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(window);
 
     if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)){
-        std::cerr << "Failed to initialize GLAD\n"; return -1;
+        return -1;
     }
 
     glViewport(0, 0, windowWidth, windowHeight);
 
-    unsigned int starShaderProgram = createShaderProgram(fragmentShaderSourceStar);
-    unsigned int lineShaderProgram = createShaderProgram(fragmentShaderSource);
+    unsigned int bhShader = createShaderProgram(fragmentShaderSourceBH);
+    unsigned int lightShader = createShaderProgram(fragmentShaderSource);
 
-    // Create shapes
-    Star circle(createCircle(0.3f, 100, windowWidth, windowHeight), GL_TRIANGLE_FAN, 0.75f, 0.0f);
-    Ray line(createLine(-0.9f, 0.0f, -0.85f, 0.0f), GL_LINES, windowWidth, windowHeight);
-    Ray line2(createLine(-0.9f, -0.2f, -0.85f, -0.2f), GL_LINES, windowWidth, windowHeight);
-    Ray line3(createLine(-0.9f, -0.5f, -0.85f, -0.5f), GL_LINES, windowWidth, windowHeight);
-    Ray line4(createLine(0.75f, -0.9f, 0.75f, -0.85f), GL_LINES, windowWidth, windowHeight);
-    Ray line5(createLine(-1.0f, -1.0f, -0.95f, -0.95f), GL_LINES, windowWidth, windowHeight);
+    BlackHole black_hole(createCircle(0.05f, 100, windowWidth, windowHeight), 5e30f, GL_TRIANGLE_FAN, 0.05f, 0.5f, 0.0f);
 
+    // Create a row of light rays down the right
+    std::vector<Ray> rays;
+    for (float y = -1.0f; y <= 1.0f; y += 0.05f)
+        rays.emplace_back(-1.0f, y, windowWidth, windowHeight, 0.05f, 0.0f);
 
     while(!glfwWindowShouldClose(window)){
 
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        circle.draw(starShaderProgram);
-        line.draw(lineShaderProgram);
-        line2.draw(lineShaderProgram);
-        line3.draw(lineShaderProgram);
-        line4.draw(lineShaderProgram);
-        line5.draw(lineShaderProgram);
-
-        if (!line.collidedWith(circle)) {
-            line.updateLoc(0.002, 0);
-        }
-        if (!line2.collidedWith(circle)) {
-            line2.updateLoc(0.002, 0);
-        }
-        if (!line3.collidedWith(circle)) {
-            line3.updateLoc(0.002, 0);
-        }
-        if (!line4.collidedWith(circle)) {
-            line4.updateLoc(0, 0.002);
-        }
-        if (!line5.collidedWith(circle)) {
-            line5.updateLoc(0.002, 0.001);
+        black_hole.draw(bhShader);
+        // Check collisions and update position of each ray
+        for (auto& r : rays) {
+            r.draw(lightShader);
+            if (!r.collidedWith(black_hole)) {
+                r.applyGravity(black_hole, metersPerPixelX, metersPerPixelY);
+                r.updateLoc();
+            }
         }
 
         glfwSwapBuffers(window);
