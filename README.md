@@ -11,7 +11,7 @@ Practicing OpenGL, drawing a simulation of light getting affected by different s
    - Possible ray tracing? For rendering
    - Expanding to 3D newtonian gravity
  - Black hole implementation
-   - Hopefully, render black hole like they did with interstellar, (except much simpler) 
+   - Hopefully, render a full black hole after implementing 3D physics
 
 
 ## Version History
