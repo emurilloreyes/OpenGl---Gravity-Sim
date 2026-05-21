@@ -8,6 +8,29 @@
 const float c = 299792458;
 const float GConst = 6.67e-11;
 
+const float kPhysicsDt = 0.01f;
+const float kRaySpeed = 0.1f;
+
+static void rotateToward(float& dirX, float& dirY, float targetX, float targetY, float deltaTheta) {
+    float len = sqrtf(targetX * targetX + targetY * targetY);
+    if (len < 1e-12f) return;
+    targetX /= len;
+    targetY /= len;
+
+    float cross = dirX * targetY - dirY * targetX;
+    float dot = dirX * targetX + dirY * targetY;
+    float angle = atan2f(cross, dot);
+    if (fabsf(angle) < 1e-12f) return;
+
+    float rot = (angle > 0.0f ? 1.0f : -1.0f) * fminf(fabsf(angle), deltaTheta);
+    float cosR = cosf(rot);
+    float sinR = sinf(rot);
+    float newDirX = dirX * cosR - dirY * sinR;
+    float newDirY = dirX * sinR + dirY * cosR;
+    dirX = newDirX;
+    dirY = newDirY;
+}
+
 // Vertex Shader
 const char* vertexShaderSource = R"(
 #version 330 core
@@ -82,15 +105,17 @@ struct Ray {
     std::vector<float> path;
     float offsetX, offsetY;
     float aspect;
-    float velX, velY;
+    float dirX, dirY;
     float currentX, currentY;
 
-    Ray(float startX, float startY, float winWidth, float winHeight, float vx=0.0f, float vy=0.0f)
+    Ray(float startX, float startY, float winWidth, float winHeight, float initDirX=1.0f, float initDirY=0.0f)
     : offsetX(0.0f), offsetY(0.0f),
       aspect(winWidth / winHeight),
-      velX(vx), velY(vy),
       currentX(startX), currentY(startY)
     {
+        float mag = sqrtf(initDirX * initDirX + initDirY * initDirY);
+        dirX = initDirX / mag;
+        dirY = initDirY / mag;
         glGenVertexArrays(1, &VAO);
         glGenBuffers(1, &VBO);
 
@@ -119,42 +144,30 @@ struct Ray {
         glDrawArrays(GL_LINE_STRIP, 0, path.size() / 3);
     }
 
-    void applyGravity(const BlackHole& bh, float mppX, float mppY) {
-        // Distance to black hole in NDC coordinates
-        float dx = (bh.offsetX - currentX) * aspect;
+    void step(const BlackHole& bh, float mppX, float mppY, float dt, float speed) {
+        float dxAspect = (bh.offsetX - currentX) * aspect;
         float dy = bh.offsetY - currentY;
-        float distNDC = sqrt(dx*dx + dy*dy);
 
-        // Convert the distance into meters
-        float dxMeters = dx * mppX;
+        float dxMeters = dxAspect * mppX;
         float dyMeters = dy * mppY;
-        float distMeters = sqrt(dxMeters*dxMeters + dyMeters*dyMeters);
+        float distMeters = sqrtf(dxMeters * dxMeters + dyMeters * dyMeters);
+        if (distMeters < 1e-6f) return;
 
-        // General Relativity’s weak-field approximation for light bending near a mass
-        float factor = 4.0f * GConst * bh.mass / (c * c * distMeters * distMeters * distMeters);
+        // Weak-field deflection per arc length (rad/m): 4GM / (c^2 r^2)
+        float kappa = 4.0f * GConst * bh.mass / (c * c * distMeters * distMeters);
 
-        // Adjust the ray velocity toward the black hole
-        velX += dxMeters * factor;
-        velY += dyMeters * factor;
+        float stepMetersX = dirX * speed * dt * aspect * mppX;
+        float stepMetersY = dirY * speed * dt * mppY;
+        float dsMeters = sqrtf(stepMetersX * stepMetersX + stepMetersY * stepMetersY);
+        float deltaTheta = kappa * dsMeters;
 
-        // Normalize the light's speed since it needs to move at c
-        // *note this causes inconsistencies when changing values*
-        float mag = sqrt(velX*velX + velY*velY);
-        float c_scaled = 0.02f;
+        float toBhX = bh.offsetX - currentX;
+        float toBhY = bh.offsetY - currentY;
+        rotateToward(dirX, dirY, toBhX, toBhY, deltaTheta);
 
-        velX = (velX / mag) * c_scaled;
-        velY = (velY / mag) * c_scaled;
-    }
+        currentX += dirX * speed * dt;
+        currentY += dirY * speed * dt;
 
-    void updateLoc() {
-        // Time we are simulating at
-        float dt = 0.01f;
-
-        // Scales how much the ray actually moves on screen each frame
-        currentX += velX * dt;
-        currentY += velY * dt;
-
-        // Add the new line location to the vector to create a clean trajectory
         path.push_back(currentX);
         path.push_back(currentY);
         path.push_back(0.0f);
@@ -266,8 +279,7 @@ int main(int argc, char *argv[]) {
         for (auto& r : rays) {
             r.draw(lightShader);
             if (!r.collidedWith(black_hole)) {
-                r.applyGravity(black_hole, metersPerPixelX, metersPerPixelY);
-                r.updateLoc();
+                r.step(black_hole, metersPerPixelX, metersPerPixelY, kPhysicsDt, kRaySpeed);
             }
         }
 
