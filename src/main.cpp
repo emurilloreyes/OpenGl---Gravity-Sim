@@ -2,9 +2,15 @@
 #include <vector>
 #include <cmath>
 #include <glad/glad.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <GLFW/glfw3.h>
 
 #include "camera.hpp"
+#include "constants.hpp"
+#include "geodesic.hpp"
 #include "mesh.hpp"
 
 struct InputState {
@@ -12,6 +18,31 @@ struct InputState {
     bool dragging = false;
     double lastX = 0.0;
     double lastY = 0.0;
+};
+
+struct PhotonVisual {
+    Photon photon;
+    Mesh mesh;
+
+    PhotonVisual(double b, double approachAngle, double planeTiltX)
+        : mesh(makeDynamicLineStrip()) {
+        photon.resetFromDirection(b, approachAngle, planeTiltX);
+        mesh.updateVertices(photon.path);
+    }
+
+    void step() {
+        if (!photon.isActive()) return;
+        for (int i = 0; i < constants::geodesicStepsPerFrame && photon.isActive(); ++i) {
+            photon.step(constants::dPhi, constants::rs, constants::rMax);
+        }
+        mesh.updateVertices(photon.path);
+    }
+
+    void draw(unsigned int shader, const Mat4& mvp) const {
+        if (photon.path.size() >= 6) {
+            mesh.draw(shader, mvp);
+        }
+    }
 };
 
 static void framebufferSizeCallback(GLFWwindow* window, int width, int height) {
@@ -96,20 +127,27 @@ int main(int argc, char* argv[]) {
     unsigned int bhShader = createShaderProgram(defaultVertexShader(), defaultFragmentShaderRed());
     unsigned int rayShader = createShaderProgram(defaultVertexShader(), defaultFragmentShaderWhite());
 
-    const float bhRadius = 0.35f;
-    Mesh blackHole(createSphere(bhRadius, 24, 36), GL_TRIANGLES);
+    Mesh blackHole(createSphere(constants::bhRenderRadius, 24, 36), GL_TRIANGLES);
 
-    // Straight rays in 3D: grid on plane x = -6, direction +x (physics comes in Phase B).
-    const float rayStartX = -6.0f;
-    const float rayLength = 12.0f;
-    const int raySegments = 32;
+    // Schwarzschild geodesics: many directions (azimuth), impact parameters b, tilted orbital planes.
+    std::vector<PhotonVisual> photons;
+    photons.reserve(static_cast<size_t>(constants::rayDirectionCount) * 16 *
+                    static_cast<size_t>(constants::rayTiltCount));
 
-    std::vector<Mesh> rays;
-    for (float y = -2.0f; y <= 2.0f; y += 0.4f) {
-        for (float z = -2.0f; z <= 2.0f; z += 0.4f) {
-            Vec3 start{rayStartX, y, z};
-            Vec3 dir{1.0f, 0.0f, 0.0f};
-            rays.emplace_back(createLineStrip(start, dir, rayLength, raySegments), GL_LINE_STRIP);
+    for (int i = 0; i < constants::rayDirectionCount; ++i) {
+        const double approachAngle =
+            (2.0 * M_PI * i) / static_cast<double>(constants::rayDirectionCount);
+
+        for (double b = constants::rayBMin; b <= constants::rayBMax + 1e-9; b += constants::rayBStep) {
+            for (int t = 0; t < constants::rayTiltCount; ++t) {
+                double tilt = 0.0;
+                if (constants::rayTiltCount > 1) {
+                    tilt = -constants::rayTiltMax +
+                           (2.0 * constants::rayTiltMax * t) /
+                               static_cast<double>(constants::rayTiltCount - 1);
+                }
+                photons.emplace_back(b, approachAngle, tilt);
+            }
         }
     }
 
@@ -119,10 +157,15 @@ int main(int argc, char* argv[]) {
 
         Mat4 vp = camera.viewProjection();
         Mat4 model = Mat4::identity();
+        Mat4 mvp = multiply(vp, model);
 
-        blackHole.draw(bhShader, multiply(vp, model));
-        for (const auto& ray : rays) {
-            ray.draw(rayShader, multiply(vp, model));
+        for (auto& p : photons) {
+            p.step();
+        }
+
+        blackHole.draw(bhShader, mvp);
+        for (const auto& p : photons) {
+            p.draw(rayShader, mvp);
         }
 
         glfwSwapBuffers(window);

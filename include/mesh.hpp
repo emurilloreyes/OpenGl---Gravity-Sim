@@ -30,4 +30,7 @@ public:
     Mesh& operator=(Mesh&& other) noexcept;
 
     void draw(unsigned int shaderProgram, const Mat4& mvp) const;
+    void updateVertices(const std::vector<float>& vertices);
 };
+
+Mesh makeDynamicLineStrip();

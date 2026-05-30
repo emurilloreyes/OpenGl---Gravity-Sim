@@ -103,18 +103,6 @@ std::vector<float> createSphere(float radius, int stacks, int slices) {
     return verts;
 }
 
-std::vector<float> createLineStrip(const Vec3& start, const Vec3& dir, float length, int segments) {
-    std::vector<float> verts;
-    Vec3 d = dir.normalized();
-    for (int i = 0; i <= segments; ++i) {
-        float t = static_cast<float>(i) / segments * length;
-        Vec3 p = start + d * t;
-        verts.push_back(p.x);
-        verts.push_back(p.y);
-        verts.push_back(p.z);
-    }
-    return verts;
-}
 
 Mesh::Mesh(const std::vector<float>& vertices, GLenum mode, GLenum usage) : drawMode(mode) {
     vertexCount = static_cast<int>(vertices.size() / 3);
@@ -165,3 +153,20 @@ void Mesh::draw(unsigned int shaderProgram, const Mat4& mvp) const {
     glDrawArrays(drawMode, 0, vertexCount);
     glBindVertexArray(0);
 }
+
+void Mesh::updateVertices(const std::vector<float>& vertices) {
+    if (vertices.size() % 3 != 0) return;
+    vertexCount = static_cast<int>(vertices.size() / 3);
+
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_DYNAMIC_DRAW);
+    glBindVertexArray(0);
+}
+
+Mesh makeDynamicLineStrip() {
+    std::vector<float> seed = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    return Mesh(seed, GL_LINE_STRIP, GL_DYNAMIC_DRAW);
+}
+
+

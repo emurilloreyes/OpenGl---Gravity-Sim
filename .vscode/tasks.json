@@ -11,6 +11,8 @@
                 "-I${workspaceFolder}/include",
                 "-L${workspaceFolder}/lib",
                 "${workspaceFolder}/src/main.cpp",
+                "${workspaceFolder}/src/mesh.cpp",
+                "${workspaceFolder}/src/geodesic.cpp",
                 "${workspaceFolder}/src/glad.c",
                 "-lglfw3dll",
                 "-o",

@@ -25,7 +25,7 @@ public:
 
     void zoom(float delta) {
         distance -= delta;
-        if (distance < 2.0f) distance = 2.0f;
+        if (distance < 1.0f) distance = 1.0f;
         if (distance > 80.0f) distance = 80.0f;
     }
 
